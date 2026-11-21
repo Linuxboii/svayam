@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Svayam — sentences that count themselves</title>
+<meta name="description" content="Svayam searches for autograms: sentences that correctly state how many times each letter appears in themselves. Give it any opening words and watch a Web Worker hunt through millions of candidates a second until the sentence is true.">
+<meta property="og:title" content="Svayam — sentences that count themselves">
+<meta property="og:description" content="“This sentence contains three a's, one b, three c's…” — and it is right. Type an opening, find your own.">
+<meta name="theme-color" content="#121110">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23121110'/%3E%3Ctext x='16' y='23' font-family='Georgia,serif' font-size='19' font-style='italic' text-anchor='middle' fill='%23e3b25c'%3E3a%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f6f3ec; --panel: #fffdf8; --ink: #1d1b17; --muted: #716b60; --line: #e2dccf; --accent: #9a5b12;
+    --good: #2f7a4b; --bad: #b2412e; --mark: rgba(154,91,18,.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121110; --panel: #1a1917; --ink: #ede8df; --muted: #948d82; --line: #2a2825; --accent: #e3b25c;
+      --good: #7fd19b; --bad: #ff8a73; --mark: rgba(227,178,92,.14);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body { font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .serif { font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 36px 20px 40px; }
+  header h1 { margin: 0; font-size: clamp(30px, 5vw, 46px); letter-spacing: -.02em; line-height: 1.05; }
+  header h1 span { color: var(--accent); font-weight: 500; margin-right: .3em; }
+  header p { margin: 10px 0 0; color: var(--muted); max-width: 64ch; }
+  form { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+  .field { flex: 1 1 340px; display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  input[type=text] { font: inherit; font-size: 18px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+  input[type=text]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .actions { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+  .btn { font: inherit; padding: 12px 18px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; min-width: 110px; }
+  @media (prefers-color-scheme: dark) { .btn.primary { color: #1a140a; } }
+  .btn:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); padding-bottom: 12px; }
+  .check input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .stage { margin-top: 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: clamp(18px, 4vw, 34px); }
+  .sentence { font-size: clamp(20px, 2.6vw, 28px); line-height: 1.5; margin: 0; min-height: 4.5em; word-break: break-word; }
+  .sentence .n { border-radius: 4px; padding: 0 2px; transition: background .2s, color .2s; }
+  .sentence .n.off { color: var(--bad); text-decoration: underline wavy; text-decoration-thickness: 1px; text-underline-offset: 4px; }
+  .sentence .n.ok { background: var(--mark); }
+  .sentence.done .n { color: var(--good); background: transparent; text-decoration: none; }
+  .meter { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 13px; color: var(--muted); }
+  .meter b { color: var(--ink); font-weight: 600; }
+  .verdict { margin-top: 14px; font-weight: 600; min-height: 1.5em; }
+  .verdict.good { color: var(--good); }
+  .table { margin-top: 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+  .cell { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 13px; display: flex; justify-content: space-between; }
+  .cell b { font-size: 15px; }
+  .cell.bad { border-color: var(--bad); color: var(--bad); }
+  .cell.good { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); }
+  h2 { margin: 34px 0 12px; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .lib { display: flex; flex-direction: column; gap: 10px; }
+  .lib blockquote { margin: 0; padding: 14px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; font-size: 17px; line-height: 1.55; }
+  .lib blockquote small { display: block; margin-top: 6px; color: var(--muted); font-family: ui-sans-serif, system-ui, sans-serif; font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { font: inherit; font-size: 13px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+  .how { color: var(--muted); font-size: 14.5px; max-width: 72ch; }
+  .how p { margin: 0 0 10px; }
+  footer { margin-top: 32px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 13px; }
+  footer a { color: inherit; text-underline-offset: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span lang="sa">स्वयम्</span>Svayam</h1>
+    <p>An autogram is a sentence that correctly counts its own letters. Every number you write changes the counts you were writing about, so finding one is a search, not a sum. Type an opening and let it hunt.</p>
+  </header>
+
+  <form id="form" autocomplete="off">
+    <div class="field">
+      <label for="prefix">Opening words</label>
+      <input type="text" id="prefix" maxlength="80" value="This sentence contains" spellcheck="false">
+      <div class="chips" id="ideas" aria-label="Openings to try"></div>
+    </div>
+    <div class="actions">
+      <label class="check"><input type="checkbox" id="pangram" checked> List all 26 letters</label>
+      <button class="btn primary" id="go" type="submit">Search</button>
+    </div>
+  </form>
+
+  <section class="stage" aria-live="polite" aria-busy="false" id="stage">
+    <p class="sentence serif" id="sentence"></p>
+    <div class="verdict" id="verdict"></div>
+    <div class="meter mono">
+      <span>tried <b id="iters">0</b></span>
+      <span>speed <b id="rate">—</b></span>
+      <span>restarts <b id="restarts">0</b></span>
+      <span>closest miss <b id="best">—</b></span>
+      <span>time <b id="time">0.0s</b></span>
+    </div>
+    <div class="table mono" id="table" aria-label="Claimed versus actual letter counts"></div>
+  </section>
+
+  <h2>Found here</h2>
+  <div class="lib" id="lib"></div>
+
+  <h2>How it searches</h2>
+  <div class="how">
+    <p>The sentence is a vector of 26 claimed counts. Rendering it to English and counting its letters gives a second vector. An autogram is a fixed point: the counts it claims are the counts it has.</p>
+    <p>Iterating that map directly falls into cycles almost immediately, so the worker moves only a random subset of letters toward their true counts each round, occasionally nudges one off by a step, and restarts from scratch when it stops improving. Letter totals for every number word are precomputed, so each candidate costs a few hundred integer additions — a few million candidates a second on a laptop. Every hit is recounted independently in the page before it is shown as true.</p>
+  </div>
+
+  <footer>
+    <span><span lang="sa">स्वयम्</span> (svayam) — Sanskrit for oneself, by itself.</span>
+    <span>A deliberately useless thing by <a href="https://sushanth.avlokai.com/projects">Sushanth Kasturi</a></span>
+  </footer>
+</div>
+
+<script id="solver" type="text/plain">
+'use strict';
+const ONES = ['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+const TENS = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+const word = (n) => n < 20 ? ONES[n] : TENS[Math.floor(n / 10)] + (n % 10 ? '-' + ONES[n % 10] : '');
+const A = 'abcdefghijklmnopqrstuvwxyz';
+const WC = [];
+for (let n = 0; n < 100; n++) { const w = new Int32Array(26); for (const ch of word(n)) { const i = A.indexOf(ch); if (i >= 0) w[i]++; } WC.push(w); }
+
+function solve(prefix, pangram, post, shouldStop) {
+  const base = new Int32Array(26);
+  for (const ch of prefix.toLowerCase()) { const i = A.indexOf(ch); if (i >= 0) base[i]++; }
+  base[0]++; base[13]++; base[3]++; // the closing "and"
+  const minV = pangram ? 1 : 0;
+  const count = (v, c) => {
+    c.set(base);
+    for (let i = 0; i < 26; i++) {
+      const k = v[i]; if (!k) continue;
+      const w = WC[k]; for (let j = 0; j < 26; j++) c[j] += w[j];
+      c[i]++; if (k > 1) c[18]++; // the letter itself, and the s of "'s"
+    }
+  };
+  // a letter left out (count 0) must truly be absent; clamp anything past 99
+  const dist = (v, c) => { let d = 0; for (let i = 0; i < 26; i++) d += Math.abs(c[i] - v[i]); return d; };
+  const v = new Int32Array(26), c = new Int32Array(26), best = new Int32Array(26);
+  let bestD = Infinity, iters = 0, restarts = 0, sinceGain = 0, localBest = Infinity;
+  const t0 = Date.now(); let lastPost = 0;
+  const restart = () => {
+    for (let i = 0; i < 26; i++) v[i] = Math.max(minV, base[i] + 1 + ((Math.random() * 3) | 0));
+    count(v, c); for (let i = 0; i < 26; i++) v[i] = Math.min(99, Math.max(minV, c[i]));
+    localBest = Infinity; sinceGain = 0;
+  };
+  restart();
+  for (;;) {
+    for (let b = 0; b < 20000; b++) {
+      iters++;
+      count(v, c);
+      const d = dist(v, c);
+      if (d < localBest) { localBest = d; sinceGain = 0; } else sinceGain++;
+      if (d < bestD) { bestD = d; best.set(v); }
+      if (d === 0) { post({ done: true, v: Array.from(v), iters, restarts, ms: Date.now() - t0 }); return; }
+      for (let i = 0; i < 26; i++) {
+        if (c[i] !== v[i] && Math.random() < 0.3) {
+          let nv = c[i];
+          if (Math.random() < 0.25) nv += Math.random() < 0.5 ? -1 : 1;
+          v[i] = Math.min(99, Math.max(minV, nv));
+        }
+      }
+      for (let i = 0; i < 26; i++) if (!v[i] && c[i] > 0) v[i] = Math.min(99, c[i]); // present letters must be listed
+      if (sinceGain > 400000) { restarts++; restart(); }
+    }
+    const now = Date.now();
+    if (now - lastPost > 120) { lastPost = now; post({ v: Array.from(best), d: bestD, iters, restarts, ms: now - t0 }); }
+    if (shouldStop()) return;
+  }
+}
+if (typeof importScripts === 'function') {
+  // the page stops a search by terminating the worker, so a tight loop is fine here
+  self.onmessage = (e) => {
+    try { solve(e.data.prefix, e.data.pangram, (m) => self.postMessage(m), () => false); }
+    catch (err) { self.postMessage({ error: String(err) }); }
+  };
+}
+if (typeof module === 'object' && module.exports) module.exports = { solve, word };
+</script>
+
+<script>
+(() => {
+  'use strict';
+  const solverSrc = document.getElementById('solver').textContent;
+  const ONES = ['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+  const TENS = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+  const word = (n) => n < 20 ? ONES[n] : TENS[Math.floor(n / 10)] + (n % 10 ? '-' + ONES[n % 10] : '');
+  const A = 'abcdefghijklmnopqrstuvwxyz';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // Precomputed in development and re-verified on load by the same checker.
+  const SHIPPED = [
+    { prefix: 'This sentence contains', v: [3,1,3,2,31,5,2,6,11,1,1,2,1,21,16,1,1,5,27,20,2,6,8,4,5,1] },
+    { prefix: 'This pangram lists', v: [4,1,1,2,29,8,3,5,11,1,1,3,2,22,15,2,1,7,26,19,4,5,9,2,4,1] },
+    { prefix: 'Sushanth wrote a sentence with', v: [4,1,2,2,31,5,2,7,9,1,1,2,1,22,18,1,1,6,27,21,4,6,12,3,5,1] },
+    { prefix: 'In this line you will find', v: [2,1,1,3,31,8,2,5,14,1,1,4,1,22,17,1,1,6,26,16,5,7,7,4,5,1] },
+  ];
+
+  function render(prefix, v) {
+    const items = [];
+    for (let i = 0; i < 26; i++) if (v[i]) items.push({ i, text: word(v[i]) + ' ' + A[i] + (v[i] > 1 ? "'s" : '') });
+    const parts = items.map((it, k) => (k === items.length - 1 && items.length > 1 ? 'and ' : '') + it.text);
+    return { text: `${prefix} ${parts.join(', ').replace(/, and /, ' and ')}.`, items };
+  }
+  function actual(text) { const c = new Array(26).fill(0); for (const ch of text.toLowerCase()) { const i = A.indexOf(ch); if (i >= 0) c[i]++; } return c; }
+  function verify(prefix, v) {
+    const { text } = render(prefix, v), c = actual(text);
+    for (let i = 0; i < 26; i++) if (c[i] !== v[i]) return false;
+    return true;
+  }
+
+  function paint(prefix, v, done) {
+    const { items } = render(prefix, v);
+    const c = actual(render(prefix, v).text);
+    let html = esc(prefix) + ' ';
+    items.forEach((it, k) => {
+      const ok = c[it.i] === v[it.i];
+      const pre = k === items.length - 1 && items.length > 1 ? (items.length > 2 ? ' and ' : ' and ') : (k ? ', ' : '');
+      html += `${pre}<span class="n ${ok ? 'ok' : 'off'}" title="claims ${v[it.i]}, has ${c[it.i]}">${esc(word(v[it.i]))}</span> ${A[it.i]}${v[it.i] > 1 ? "'s" : ''}`;
+    });
+    html += '.';
+    const s = $('sentence'); s.innerHTML = html; s.classList.toggle('done', !!done);
+    $('table').innerHTML = A.split('').map((ch, i) => {
+      if (!v[i] && !c[i]) return '';
+      const ok = v[i] === c[i];
+      return `<div class="cell ${ok ? 'good' : 'bad'}"><span>${ch}</span><span><b>${v[i]}</b>${ok ? '' : ' / ' + c[i]}</span></div>`;
+    }).join('');
+  }
+
+  // ---------- worker plumbing
+  let worker = null, running = false, started = 0;
+  const fmt = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(0) + 'k' : String(n);
+  function stop() {
+    if (worker) { worker.terminate(); worker = null; }
+    running = false; $('go').textContent = 'Search'; $('stage').setAttribute('aria-busy', 'false');
+  }
+  function start(prefix, pangram) {
+    stop();
+    const url = URL.createObjectURL(new Blob([solverSrc], { type: 'text/javascript' }));
+    worker = new Worker(url);
+    URL.revokeObjectURL(url);
+    worker.postMessage({ prefix, pangram });
+    running = true; started = performance.now();
+    $('go').textContent = 'Stop'; $('stage').setAttribute('aria-busy', 'true');
+    $('verdict').textContent = 'Searching…'; $('verdict').className = 'verdict'; delete $('verdict').dataset.long;
+    let lastIters = 0, lastT = performance.now();
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.error) { $('verdict').textContent = 'The search failed: ' + m.error; stop(); return; }
+      $('iters').textContent = fmt(m.iters);
+      $('restarts').textContent = m.restarts;
+      $('time').textContent = (m.ms / 1000).toFixed(1) + 's';
+      const now = performance.now();
+      if (now - lastT > 400) { $('rate').textContent = fmt(Math.round((m.iters - lastIters) * 1000 / (now - lastT))) + '/s'; lastIters = m.iters; lastT = now; }
+      if (m.done) {
+        stop();
+        if (verify(prefix, m.v)) {
+          paint(prefix, m.v, true);
+          $('best').textContent = '0';
+          $('verdict').textContent = `True. Found after ${fmt(m.iters)} candidates and ${(m.ms / 1000).toFixed(1)} seconds — check any letter.`;
+          $('verdict').className = 'verdict good';
+          save(prefix, m.v);
+        } else {
+          $('verdict').textContent = 'The worker reported a hit that failed the recount. That should never happen.';
+        }
+      } else {
+        $('best').textContent = `${m.d} letter${m.d === 1 ? '' : 's'} off`;
+        if (m.ms > 45000 && !$('verdict').dataset.long) { $('verdict').dataset.long = 1; $('verdict').textContent = 'Still searching. Some openings have no autogram at all; adding or dropping a single word changes the whole landscape.'; }
+        paint(prefix, m.v, false);
+      }
+    };
+  }
+
+  $('form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (running) { stop(); $('verdict').textContent = 'Stopped. The closest miss is shown.'; return; }
+    const prefix = $('prefix').value.replace(/\s+/g, ' ').trim();
+    if (!/[a-z]/i.test(prefix)) { $('verdict').textContent = 'Give it a few words to start with.'; return; }
+    start(prefix, $('pangram').checked);
+  });
+
+  const IDEAS = ['This sentence contains', 'In this line you will find', 'Here are', 'This pangram lists', 'Sushanth wrote a sentence with'];
+  $('ideas').innerHTML = IDEAS.map((t) => `<button type="button" class="chip">${esc(t)}</button>`).join('');
+  $('ideas').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; $('prefix').value = b.textContent; $('prefix').focus(); });
+
+  // ---------- library
+  const KEY = 'svayam-found';
+  const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (_) { return []; } };
+  function save(prefix, v) {
+    try {
+      const all = load().filter((x) => x.prefix !== prefix);
+      all.unshift({ prefix, v, at: Date.now() });
+      localStorage.setItem(KEY, JSON.stringify(all.slice(0, 20)));
+    } catch (_) {}
+    showLib();
+  }
+  function showLib() {
+    const mine = load().filter((x) => Array.isArray(x.v) && x.v.length === 26 && verify(x.prefix, x.v));
+    const rows = [...mine.map((x) => ({ ...x, mine: true })), ...SHIPPED.filter((s) => verify(s.prefix, s.v) && !mine.some((m) => m.prefix === s.prefix))];
+    $('lib').innerHTML = rows.map((r) => `<blockquote class="serif">${esc(render(r.prefix, r.v).text)}<small>${r.mine ? 'Found in this browser' : 'Found while building this page'} · every count checked</small></blockquote>`).join('');
+  }
+  showLib();
+  paint(SHIPPED[0].prefix, SHIPPED[0].v, true);
+  $('verdict').textContent = 'This one is true. Count any letter. Then try your own opening.';
+  $('verdict').className = 'verdict good';
+})();
+</script>
+</body>
+</html>
